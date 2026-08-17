@@ -283,16 +283,32 @@ class BaseCrawler:
         # 优先: 用户配置的 Cloudflare Worker
         if CORS_PROXY_URL:
             base = CORS_PROXY_URL.rstrip("/")
-            proxy_urls.append(f"{base}/?url={quote_plus(full_url)}")
+            proxy_urls.append({
+                "url": f"{base}/?url={quote_plus(full_url)}",
+                "source": "Cloudflare Worker",
+                "proxy_base": CORS_PROXY_URL,
+            })
 
         # 备用: 公共CORS代理（可能不稳定）
-        proxy_urls.append(f"https://api.allorigins.win/raw?url={quote_plus(full_url)}")
-        proxy_urls.append(f"https://corsproxy.io/?url={quote_plus(full_url)}")
+        proxy_urls.append({
+            "url": f"https://api.allorigins.win/raw?url={quote_plus(full_url)}",
+            "source": "公共CORS代理(allorigins)",
+            "proxy_base": "https://api.allorigins.win",
+        })
+        proxy_urls.append({
+            "url": f"https://corsproxy.io/?url={quote_plus(full_url)}",
+            "source": "公共CORS代理(corsproxy)",
+            "proxy_base": "https://corsproxy.io",
+        })
 
-        for proxy_url in proxy_urls:
+        for proxy_info in proxy_urls:
+            proxy_url = proxy_info["url"]
+            source = proxy_info["source"]
             try:
-                source = "Cloudflare Worker" if CORS_PROXY_URL and proxy_url.startswith(CORS_PROXY_URL) else "公共CORS代理"
-                logger.info(f"[{self.name}] 尝试{source}中转...")
+                logger.info(
+                    f"[{self.name}] 尝试{source}中转... "
+                    f"代理地址={proxy_info['proxy_base']}"
+                )
                 simple_headers = {
                     "User-Agent": random.choice(USER_AGENTS),
                     "Accept": "application/json, text/plain, */*",
@@ -304,22 +320,52 @@ class BaseCrawler:
                     verify=False,
                 )
                 if resp.status_code == 200 and resp.text:
+                    # 尝试验证响应是否为有效JSON
+                    is_json = False
                     try:
                         resp.json()
-                        logger.info(f"[{self.name}] {source}中转成功!")
+                        is_json = True
+                    except ValueError:
+                        pass
+
+                    if is_json:
+                        logger.info(f"[{self.name}] {source}中转成功! (JSON响应)")
                         self.last_error = ""
                         return resp
-                    except ValueError:
-                        logger.warning(f"[{self.name}] {source}返回非JSON数据")
-                        continue
+                    else:
+                        # 即使不是JSON也返回，可能是HTML或其他格式
+                        logger.info(f"[{self.name}] {source}中转成功! (非JSON, 长度={len(resp.text)})")
+                        self.last_error = ""
+                        return resp
                 else:
-                    logger.warning(f"[{self.name}] {source}返回 {resp.status_code}")
+                    logger.warning(
+                        f"[{self.name}] {source}返回 HTTP {resp.status_code}, "
+                        f"响应长度={len(resp.text) if resp.text else 0}"
+                    )
+                    if resp.text:
+                        logger.warning(f"[{self.name}] 响应内容预览: {resp.text[:200]}")
                     continue
+            except requests.exceptions.ConnectionError as e:
+                err_str = str(e)[:200]
+                logger.warning(f"[{self.name}] {source}连接失败: {err_str}")
+                if "Name or service not known" in err_str or "Failed to resolve" in err_str:
+                    logger.error(
+                        f"[{self.name}] {source} DNS解析失败! "
+                        f"代理地址={proxy_info['proxy_base']} "
+                        f"请检查CORS_PROXY_URL环境变量是否正确"
+                    )
+                continue
+            except requests.exceptions.Timeout:
+                logger.warning(f"[{self.name}] {source}请求超时({timeout}s)")
+                continue
             except Exception as e:
                 logger.warning(f"[{self.name}] {source}中转失败: {e}")
                 continue
 
-        self.last_error = "网络不可达(需配置CORS_PROXY_URL或CRAWL_PROXY)"
+        if CORS_PROXY_URL:
+            self.last_error = f"网络不可达(代理{CORS_PROXY_URL}无法连接，请检查CORS_PROXY_URL配置)"
+        else:
+            self.last_error = "网络不可达(需配置CORS_PROXY_URL或CRAWL_PROXY)"
         return None
 
     def _request_with_retry(
