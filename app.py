@@ -67,6 +67,95 @@ def api_districts():
     return jsonify({"districts": CHONGQING_DISTRICTS})
 
 
+@app.route("/api/proxy-test")
+def api_proxy_test():
+    """
+    代理诊断接口 - 检查 CORS_PROXY_URL 配置是否正确
+    访问 /api/proxy-test 即可查看代理状态
+    """
+    import requests as req
+    from urllib.parse import quote_plus
+
+    cors_url = os.environ.get("CORS_PROXY_URL", "")
+    crawl_proxy = os.environ.get("CRAWL_PROXY", "")
+
+    result = {
+        "cors_proxy_url": cors_url if cors_url else "(未配置)",
+        "cors_proxy_url_length": len(cors_url),
+        "crawl_proxy": crawl_proxy if crawl_proxy else "(未配置)",
+        "tests": [],
+    }
+
+    # 测试1: 直接访问政府网站 (预期从海外服务器失败)
+    test_url = "https://www.ccgp-chongqing.gov.cn/"
+    try:
+        resp = req.get(test_url, timeout=5, verify=False)
+        result["tests"].append({
+            "name": "直接访问政府网站",
+            "url": test_url,
+            "status": "success",
+            "http_code": resp.status_code,
+        })
+    except Exception as e:
+        err = str(e)[:200]
+        result["tests"].append({
+            "name": "直接访问政府网站",
+            "url": test_url,
+            "status": "failed",
+            "error": err,
+            "hint": "海外服务器无法直接访问中国政府网站是正常的，需要代理",
+        })
+
+    # 测试2: 通过 Cloudflare Worker 代理访问
+    if cors_url:
+        base = cors_url.rstrip("/")
+        proxy_test_url = f"{base}/?url={quote_plus(test_url)}"
+        try:
+            resp = req.get(proxy_test_url, timeout=15, verify=False)
+            result["tests"].append({
+                "name": "Cloudflare Worker代理",
+                "proxy_url": cors_url,
+                "request_url": proxy_test_url[:100] + "...",
+                "status": "success" if resp.status_code == 200 else "failed",
+                "http_code": resp.status_code,
+                "response_length": len(resp.text),
+                "response_preview": resp.text[:200] if resp.text else "(empty)",
+            })
+        except Exception as e:
+            err = str(e)[:200]
+            result["tests"].append({
+                "name": "Cloudflare Worker代理",
+                "proxy_url": cors_url,
+                "status": "failed",
+                "error": err,
+                "hint": "检查CORS_PROXY_URL是否正确，确保Worker已部署",
+            })
+    else:
+        result["tests"].append({
+            "name": "Cloudflare Worker代理",
+            "status": "skipped",
+            "hint": "CORS_PROXY_URL未配置。请在Render环境变量中设置CORS_PROXY_URL",
+        })
+
+    # 测试3: 通过公共CORS代理访问
+    public_proxy = f"https://api.allorigins.win/raw?url={quote_plus(test_url)}"
+    try:
+        resp = req.get(public_proxy, timeout=10, verify=False)
+        result["tests"].append({
+            "name": "公共CORS代理(allorigins)",
+            "status": "success" if resp.status_code == 200 else "failed",
+            "http_code": resp.status_code,
+        })
+    except Exception as e:
+        result["tests"].append({
+            "name": "公共CORS代理(allorigins)",
+            "status": "failed",
+            "error": str(e)[:200],
+        })
+
+    return jsonify(result)
+
+
 @app.route("/api/search", methods=["POST"])
 def api_search():
     """
@@ -903,9 +992,13 @@ HTML_TEMPLATE = r"""
             html += '</div>';
             // 如果有平台失败，显示提示
             if (failCount > 0) {
-                html += '<div style="margin-top:8px;padding:8px 12px;background:#fff3e0;border-radius:6px;font-size:12px;color:#e65100;">';
-                html += failCount + '个平台查询失败，可能是海外服务器无法访问中国政府网站。';
-                html += '请在Render环境变量中配置 CORS_PROXY_URL (Cloudflare Worker代理) 解决此问题。';
+                html += '<div style="margin-top:8px;padding:10px 14px;background:#fff3e0;border-radius:6px;font-size:12px;color:#e65100;line-height:1.6;">';
+                html += '<div style="font-weight:600;margin-bottom:4px;">' + failCount + '个平台查询失败</div>';
+                html += '<div>可能原因：CORS_PROXY_URL环境变量配置不正确或Cloudflare Worker未部署</div>';
+                html += '<div style="margin-top:4px;">';
+                html += '<a href="/api/proxy-test" target="_blank" style="color:#1565c0;text-decoration:underline;">点击诊断代理配置</a>';
+                html += ' | 确认CORS_PROXY_URL的值为你的Worker完整URL(如 https://govproxy.xxx.workers.dev)';
+                html += '</div>';
                 html += '</div>';
             }
             container.innerHTML = html;
@@ -925,11 +1018,34 @@ HTML_TEMPLATE = r"""
 """
 
 
+def log_startup_info():
+    """启动时打印关键配置信息，便于在Render日志中排查问题"""
+    cors_url = os.environ.get("CORS_PROXY_URL", "")
+    crawl_proxy = os.environ.get("CRAWL_PROXY", "")
+    print("\n" + "=" * 60)
+    print("  重庆招投标信息查询平台 - 启动配置")
+    print("=" * 60)
+    print(f"  CORS_PROXY_URL = {cors_url if cors_url else '(未配置!)'}")
+    if cors_url:
+        print(f"    URL长度: {len(cors_url)}")
+        print(f"    以https开头: {cors_url.startswith('https://')}")
+        print(f"    含workers.dev: {'workers.dev' in cors_url}")
+    print(f"  CRAWL_PROXY    = {crawl_proxy if crawl_proxy else '(未配置)'}")
+    if not cors_url and not crawl_proxy:
+        print("  ⚠ 警告: 未配置任何代理! 重庆市政府采购网等平台将无法访问!")
+        print("  ⚠ 请在Render环境变量中设置 CORS_PROXY_URL")
+    print("=" * 60 + "\n")
+
+
 if __name__ == "__main__":
-    print("\n" + "=" * 50)
+    log_startup_info()
     print("  重庆招投标信息查询平台")
     print("  访问地址: http://localhost:5000")
     print("  数据来源: 4个重庆采购平台")
+    print("  诊断接口: http://localhost:5000/api/proxy-test")
     print("=" * 50 + "\n")
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=False)
+else:
+    # 在gunicorn/Render环境下也输出配置
+    log_startup_info()
