@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: bid-agent
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
+    plan: free
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.10.12
+      - key: GUNICORN_CMD_ARGS
+        value: --timeout 120 --workers 1
+      - key: PYTHONUNBUFFERED
+        value: "1"
+      # 关键: 配置Cloudflare Worker代理URL，使海外服务器能访问中国政府网站
+      # 部署方法见 cloudflare-worker.js 文件
+      # 部署后在Cloudflare获取Worker URL，填入下方
+      - key: CORS_PROXY_URL
+        sync: false
