@@ -130,6 +130,9 @@ class CCGPIntentionCrawler(BaseCrawler):
                         "User-Agent": self._get_random_ua(),
                         "Accept": "application/json, text/plain, */*",
                         "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                        "Referer": LIST_URL,
+                        "Origin": BASE_URL,
+                        "X-Requested-With": "XMLHttpRequest",
                     }
                     resp = requests.post(
                         proxy_url, data=data, headers=proxy_headers,
