@@ -188,9 +188,10 @@ class BaseCrawler:
 
         # 第二步：如果直接连接失败且错误是"网络不可达"，尝试通过CORS中转
         # 注意: 代理请求需要更长的超时时间(25秒)，因为代理服务器需要额外时间访问目标网站
-        if "网络不可达" in self.last_error or "Connection" in self.last_error:
-            logger.info(f"[{self.name}] 直接连接失败，尝试CORS中转(超时25秒)...")
-            result = self._get_via_cors_proxy(url, params, timeout=25)
+        if "网络不可达" in self.last_error or "Connection" in self.last_error or "超时" in self.last_error:
+            logger.info(f"[{self.name}] 直接连接失败，尝试CORS中转(超时15秒)...")
+            result = self._get_via_cors_proxy(url, params, headers=headers, timeout=15)
+
             if result is not None:
                 return result
 
