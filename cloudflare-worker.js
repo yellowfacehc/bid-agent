@@ -83,18 +83,29 @@ export default {
       headers.set('Accept', 'application/json, text/plain, */*');
       headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
       headers.set('Accept-Encoding', 'gzip, deflate, br');
-      
+
       // 转发原始请求的关键头（Referer、Origin、X-Requested-With等）
+      // 这些头对某些政府网站的API调用很重要
       const forwardHeaders = ['Referer', 'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Accept-Language'];
       for (const h of forwardHeaders) {
-          const val = request.headers.get(h);
-          if (val) { headers.set(h, val); }
-          }
-      
-      let fetchOptions = { method: request.method, headers: headers };
+        const val = request.headers.get(h);
+        if (val) {
+          headers.set(h, val);
+        }
+      }
+
+      // 如果是POST请求，转发请求体
+      let fetchOptions = {
+        method: request.method,
+        headers: headers,
+      };
+
       if (request.method === 'POST') {
+        try {
           const body = await request.text();
-          if (body) { fetchOptions.body = body; }
+          if (body) {
+            fetchOptions.body = body;
+            // Content-Type已在上面转发
           }
         } catch (e) {
           // 忽略body读取错误
