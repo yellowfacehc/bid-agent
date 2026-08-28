@@ -259,6 +259,7 @@ class BaseCrawler:
         self,
         url: str,
         params: dict = None,
+        headers: dict = None,
         timeout: int = None,
     ) -> Optional[requests.Response]:
         """
@@ -315,6 +316,9 @@ class BaseCrawler:
                     "User-Agent": random.choice(USER_AGENTS),
                     "Accept": "application/json, text/plain, */*",
                 }
+                if headers:
+                    for k, v in headers.items():
+                        simple_headers[k] = v
                 resp = requests.get(
                     proxy_url,
                     headers=simple_headers,
