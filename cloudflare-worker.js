@@ -77,15 +77,22 @@ export default {
         }
       }
 
-      // 构建请求头 - 模拟浏览器 + 转发原始请求的关键头
+      // 构建请求头 - 完整模拟Chrome浏览器
       const headers = new Headers();
       headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36');
       headers.set('Accept', 'application/json, text/plain, */*');
       headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
-      headers.set('Accept-Encoding', 'gzip, deflate, br');
+      headers.set('Cache-Control', 'no-cache');
+      headers.set('Pragma', 'no-cache');
+      headers.set('Sec-Ch-Ua', '"Google Chrome";v="125", "Chromium";v="125", "Not.A/Brand";v="24"');
+      headers.set('Sec-Ch-Ua-Mobile', '?0');
+      headers.set('Sec-Ch-Ua-Platform', '"Windows"');
+      headers.set('Sec-Fetch-Dest', 'empty');
+      headers.set('Sec-Fetch-Mode', 'cors');
+      headers.set('Sec-Fetch-Site', 'same-origin');
+      headers.set('Connection', 'keep-alive');
 
-      // 转发原始请求的关键头（Referer、Origin、X-Requested-With等）
-      // 这些头对某些政府网站的API调用很重要
+      // 转发原始请求的关键头（Referer、Origin、X-Requested-With、Content-Type等）
       const forwardHeaders = ['Referer', 'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Accept-Language'];
       for (const h of forwardHeaders) {
         const val = request.headers.get(h);
@@ -98,6 +105,12 @@ export default {
       let fetchOptions = {
         method: request.method,
         headers: headers,
+        // 指定从中国节点出口，绕过地域限制
+        cf: {
+          country: 'CN',
+        },
+        // 不跟随重定向，避免丢失Cookie
+        redirect: 'follow',
       };
 
       if (request.method === 'POST') {
@@ -105,7 +118,6 @@ export default {
           const body = await request.text();
           if (body) {
             fetchOptions.body = body;
-            // Content-Type已在上面转发
           }
         } catch (e) {
           // 忽略body读取错误
