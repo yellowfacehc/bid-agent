@@ -77,29 +77,24 @@ export default {
         }
       }
 
-      // 构建请求头 - 模拟浏览器
+      // 构建请求头 - 模拟浏览器 + 转发原始请求的关键头
       const headers = new Headers();
       headers.set('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36');
       headers.set('Accept', 'application/json, text/plain, */*');
       headers.set('Accept-Language', 'zh-CN,zh;q=0.9,en;q=0.8');
       headers.set('Accept-Encoding', 'gzip, deflate, br');
-
-      // 如果是POST请求，转发请求体
-      let fetchOptions = {
-        method: request.method,
-        headers: headers,
-      };
-
+      
+      // 转发原始请求的关键头（Referer、Origin、X-Requested-With等）
+      const forwardHeaders = ['Referer', 'Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Accept-Language'];
+      for (const h of forwardHeaders) {
+          const val = request.headers.get(h);
+          if (val) { headers.set(h, val); }
+          }
+      
+      let fetchOptions = { method: request.method, headers: headers };
       if (request.method === 'POST') {
-        try {
           const body = await request.text();
-          if (body) {
-            fetchOptions.body = body;
-            // 尝试获取原始Content-Type
-            const contentType = request.headers.get('Content-Type');
-            if (contentType) {
-              headers.set('Content-Type', contentType);
-            }
+          if (body) { fetchOptions.body = body; }
           }
         } catch (e) {
           // 忽略body读取错误
